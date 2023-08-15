@@ -31,10 +31,12 @@ Let’s provision a Step Functions Activity using the latest version of the AWS 
 
 First we provision an Activity using CDK’s Activity construct. The name for the Activity is optional. We incorporate this into a StepFunctionsInvokeActivity state, which will create activity tasks for our worker. Last, but not least, we define a StateMachine to complete our Step Functions configuration, passing the invocation state into the definition.
 
+````
 import { Stack, StackProps } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { Activity, StateMachine } from 'aws-cdk-lib/aws-stepfunctions'
 import { StepFunctionsInvokeActivity } from 'aws-cdk-lib/aws-stepfunctions-tasks';
+
 
 export class AwsStepFunctionsActivityStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
@@ -56,9 +58,10 @@ export class AwsStepFunctionsActivityStack extends Stack {
     });
   }
 }
-
+````
 Now we can turn our attention to the worker. So far we’ve created an Activity, but no worker is yet processing its tasks. Choosing a Node Lambda function for this example, let’s provision a NodejsFunction, passing the activity ARN as an environment variable for reference within the function code.
 
+````
 import { Duration } from 'aws-cdk-lib';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
@@ -73,10 +76,11 @@ const activityWorker = new NodejsFunction(this, 'ActivityWorker', {
   logRetention: RetentionDays.FIVE_DAYS,
   timeout: Duration.minutes(2),
 });
+````
 
 Defining the Lambda TypeScript code within src/activityWorker.ts, we read the ACTIVITY_ARN environment variable and long poll for pending tasks using the AWS SDK getActivityTask method. Note that polling may run for up to one minute, whilst Lambda functions default to a three-second timeout, so make sure to increase the Lambda timeout above one minute.
 
-
+````
 import { ScheduledHandler } from 'aws-lambda';
 import { AWSError, StepFunctions } from 'aws-sdk';
 
@@ -100,9 +104,9 @@ export const handler = async (_event: ScheduledHandler) => {
     return;
   }
 }
-
+````
 If a pending task is found, we have input data and a task token to process. Using an elementary random generator to decide whether this task should succeed or fail, we can provide output along with the task token to the SDK’s sendTaskSuccess or sendTaskFailure methods depending on the outcome.
-
+````
 // randomly decide whether to be successful or not
 const isTaskSuccessful = Math.random() < 0.5;
 
@@ -123,10 +127,10 @@ if (isTaskSuccessful) {
   };
   response = await STEP_FUNCTIONS_CLIENT.sendTaskFailure(taskOutput).promise();
 }
-
+````
 That wraps up the worker logic! Now for the finishing touches. Let’s return to the CDK and grant our Lambda function Identity and Access Management (IAM) permissions to poll and report task outcomes to the Step Functions Activity, as well as scheduling a five minute invocation rate on the Lambda function to keep it warm.
 
-
+````
 import { Rule, Schedule } from 'aws-cdk-lib/aws-events';
 import { LambdaFunction as LambdaFunctionTarget } from 'aws-cdk-lib/aws-events-targets'; 
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
@@ -142,7 +146,7 @@ new Rule(this, 'ActivitySchedule', {
   schedule: Schedule.cron({ minute: '0/5' }),
   targets: [new LambdaFunctionTarget(activityWorker)],
 });
-
+````
 Invoking the Step Functions manually from the AWS Console, we observe the pending activity task, which shows blue to indicate it is in progress until our Cron schedule invokes the Lambda worker. This will remain in progress for up to seven minutes depending on the invocation and processing times. When the worker fetches the task and reports success or failure, our Step Functions share this outcome on the Console. In failure cases, we see an Exception tab for the invocation state surfacing error details from the worker.
 
 ![image](https://github.com/parkura/article/assets/64126618/e0bfc403-0cb8-4405-b046-3d3557ef80d1)
